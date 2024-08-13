@@ -19,13 +19,17 @@
 
 ### 1. 算子：SiLU函数（10分）
 
-请在`src/operators.rs`中实现SiLU函数,其公式为：
+请在`src/operators.rs`中实现SiLU算子，其公式为：
 
 $$
-y=sigmoid(y) × y × x
+y=silu(x) × y
 $$
 
 其中
+
+$$
+silu(x) = sigmoid(x) × x
+$$
 
 $$
 sigmoid(x) = \frac{1}{1 + e^{-x}}
@@ -46,7 +50,7 @@ $$
 请在`src/operators.rs`中实现RMS Normalization，其公式为：
 
 $$
-y_i=\frac{w×x_i}{\sqrt{ \sum_{j} x_{ij}^2+\epsilon}}
+y_i=\frac{w×x_i}{\sqrt{ \frac{1}{n} \sum_{j} x_{ij}^2 +\epsilon}}
 $$
 
 注意：
