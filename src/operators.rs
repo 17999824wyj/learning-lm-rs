@@ -71,25 +71,144 @@ pub fn masked_softmax(y: &mut Tensor<f32>) {
 }
 
 pub fn rms_norm(y: &mut Tensor<f32>, x: &Tensor<f32>, w: &Tensor<f32>, epsilon: f32) {
-    todo!("实现 rms_norm，计算前做一些必要的检查会帮助你后续调试")
+    // Ensure the same length of `n`
+    let &n = y.shape().last().unwrap();
+    assert!(
+        n == *x.shape().last().unwrap(),
+        "[ERROR] @rms_norm >> the last dimension of X & Y is not the same"
+    );
+
+    // Ensure `w` is a `1 x n` vector
+    assert!(
+        n == w.shape()[0],
+        "[ERROR] @rms_norm >> the length of `w` is not `n`"
+    );
+    assert!(
+        w.shape().len() == 1,
+        "[ERROR] @rms_norm >> `w` is not a `1 * n` vector"
+    );
+
+    // for simplifing this func, regard X and Y as the same shape
+    assert!(
+        x.size() == y.size(),
+        "[ERROR] @rms_norm >> NOT-SUPPORT! X & Y should have the same shape"
+    );
+
+    // used for later calculate
+    let num = y.size() / n;
+
+    // get data
+    let _y = unsafe { y.data_mut() };
+    let _x = x.data();
+    let _w = w.data();
+
+    // start calculate
+    for i in 0..num {
+        let cur_x = &_x[i * n..(i + 1) * n];
+        let square_sum = cur_x.iter().fold(0f32, |acc, t| acc + t * t);
+        for j in 0..n {
+            _y[i * n + j] = _w[j] * cur_x[j] / ((square_sum / n as f32 + epsilon).sqrt());
+        }
+    }
 }
 
 // y = sigmoid(y) * y * x
 // hint: this is an element-wise operation
 pub fn silu(y: &mut Tensor<f32>, x: &Tensor<f32>) {
-    // let len = y.size();
-    // assert!(len == x.size());
+    let len = y.size();
+    assert!(
+        len == x.size(),
+        "[ERROR] @silu >> x & y doesn't have the same size"
+    );
 
-    // let _y = unsafe { y.data_mut() };
-    // let _x = x.data();
+    let _y = unsafe { y.data_mut() };
+    let _x = x.data();
 
-    todo!("实现 silu，这里给了一些前期准备工作的提示，你可以参考")
+    // use sigmoid for x
+    for i in 0..len {
+        _y[i] *= _x[i] * sigmoid(_x[i]);
+    }
+}
+
+// y = sigmoid(x) = 1 / (1 + exp(-x))
+#[inline]
+fn sigmoid<T>(x: T) -> f32
+where
+    T: std::ops::Neg<Output = T> + Copy + std::convert::From<f32> + std::convert::Into<f32>,
+{
+    /* Illustrations
+     * Why not `pub`?
+     *   -- This function is just what I do, I don't know whether teachers
+     *      will provide it in the following stage.
+     * Why `inline`?
+     *   -- This function is based on element, so it will be used in loop
+     *      or in matrix, so it's better to be `inline` to avoid function
+     *      call overhead.
+     * Why use Generic?
+     *   -- This function should can not only get `f32` type, but also
+     *      other basic types.
+     */
+    let exp_x = (-x).into().exp(); // Convert T to f32 to compute
+    1.0 / (1.0 + exp_x)
 }
 
 // C = beta * C + alpha * A @ B^T
 // hint: You don't need to do an explicit transpose of B
 pub fn matmul_transb(c: &mut Tensor<f32>, beta: f32, a: &Tensor<f32>, b: &Tensor<f32>, alpha: f32) {
-    todo!("实现 matmul_transb，计算前做一些必要的检查会帮助你后续调试");
+    // ** NOT support for broadcast now! **
+    // I don't know how to transporse a high-Demension matrix,
+    // so just regard A & B as 2D-matrix
+
+    // make sure 2D
+    assert!(
+        2 == a.shape().len(),
+        "[ERROR] @matmul_transb >> A is not a 2D-matrix"
+    );
+    assert!(
+        2 == b.shape().len(),
+        "[ERROR] @matmul_transb >> B is not a 2D-matrix"
+    );
+
+    // make sure can times
+    let (m, k) = (a.shape()[0], a.shape()[1]);
+    assert!(
+        k == b.shape()[1],
+        "[ERROR] @matmul_transb >> A & B can't times, because no supported shape:\n  A -> {:?}\n  B -> {:?}",
+        a.shape(), b.shape()
+    );
+    let n = b.shape()[0];
+
+    // make sure the result can be added by C
+    assert!(
+        m == c.shape()[0],
+        "[ERROR] @matmul_transb >> A & C can't add, because no supported shape:\n  A -> {:?}\n  C -> {:?}",
+        a.shape(), c.shape()
+    );
+    assert!(
+        n == c.shape()[1],
+        "[ERROR] @matmul_transb >> B & C can't add, because no supported shape:\n  B -> {:?}\n  C -> {:?}",
+        b.shape(), c.shape()
+    );
+
+    // get data
+    let _a = a.data();
+    let _b = b.data();
+    let _c = unsafe { c.data_mut() };
+
+    // C_{mn} = row-m of A * col-n of B^T
+    // after B's transporse
+    // C_{mn} = row-m of A * col-n of B
+    for i in 0..m {
+        let row_a = &_a[i * k..(i + 1) * k];
+        for j in 0..n {
+            let row_b = &_b[j * k..(j + 1) * k];
+
+            let sum: f32 = row_a.iter().zip(row_b.iter()).map(|(&a, &b)| a * b).sum();
+            _c[i * n + j] *= beta;
+            _c[i * n + j] += alpha * sum;
+        }
+    }
+    c.reshape(&vec![m, n]);
 }
 
 // Dot product of two tensors (treated as vectors)
