@@ -102,10 +102,40 @@ impl Llama<f32> {
             let full_k = &mut cache.k_cache(layer, 0); // (total_seq, n_kv_h * dqkv)
             let full_v = &mut cache.v_cache(layer, 0); // (total_seq, n_kv_h * dqkv)
 
-            todo!("self_attention(...)");
-            todo!("down_proj matmul and add residual");
+            self_attention(
+                &mut hidden_states,
+                &mut att_scores,
+                q,
+                full_k,
+                full_v,
+                self.n_kv_h,
+                n_groups,
+                seq_len,
+                total_seq_len,
+                self.dqkv,
+            );
 
-            todo!("mlp(...)");
+            OP::matmul_transb(
+                &mut residual,
+                1.,
+                &hidden_states,
+                &self.params.wo[layer],
+                1.,
+            );
+
+            let mut hidden_states = Tensor::<f32>::default(&vec![seq_len, self.d]);
+
+            mlp(
+                &mut residual,
+                &mut hidden_states,
+                &mut gate_buf,
+                &mut up_buf,
+                &self.params.w_up[layer],
+                &self.params.w_down[layer],
+                &self.params.w_gate[layer],
+                &self.params.rms_ffn_w[layer],
+                self.eps,
+            );
         }
 
         // No matter what seq_len, the output is always a 1D vector of length vocab,
@@ -121,7 +151,7 @@ impl Llama<f32> {
             self.eps,
         );
 
-        OP::matmul_transb(&mut logits, 0., &hidden_states, &self.params.lm_head, 1.0);
+        OP::matmul_transb(&mut logits, 0., &hidden_states, &self.params.lm_head, 1.);
 
         logits
     }
@@ -136,7 +166,18 @@ impl Llama<f32> {
     ) -> Vec<u32> {
         let mut result = Vec::<u32>::new();
 
-        todo!("实现文本生成");
+        // for token in token_ids {
+        //     result.push(*token);
+        // }
+
+        let mut input = Tensor::new(Vec::from(token_ids), &vec![token_ids.len()]);
+        let mut cache = self.new_cache();
+        for _ in 0..max_len {
+            let res = self.forward(&input, &mut cache);
+            let token = OP::random_sample(&res, top_p, top_k, temperature);
+            result.push(token);
+            input = Tensor::new(vec![token], &vec![1]);
+        }
 
         result
     }
