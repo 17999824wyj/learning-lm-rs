@@ -175,7 +175,21 @@ pub fn matmul_transb(c: &mut Tensor<f32>, beta: f32, a: &Tensor<f32>, b: &Tensor
 
     // make sure can times
     let (m, k) = (a.shape()[0], a.shape()[1]);
+    // 1. judge whether need to broadcast
+    if k != b.shape()[1] {
+        // need to broadcast
+        // 2. judge whether can broadcast
+        assert!(
+            k == 1 || b.shape()[1] == 1,
+            "[ERROR] @matmul_transb >> A & B can't broadcast times, because no supported shape:\n  A -> {:?}\n  B -> {:?}",
+            a.shape(), b.shape()
+        );
+
+        // if reach here, means can broadcast
+    }
+
     assert!(
+        // Never Reach
         k == b.shape()[1],
         "[ERROR] @matmul_transb >> A & B can't times, because no supported shape:\n  A -> {:?}\n  B -> {:?}",
         a.shape(), b.shape()
@@ -201,7 +215,7 @@ pub fn matmul_transb(c: &mut Tensor<f32>, beta: f32, a: &Tensor<f32>, b: &Tensor
 
     // C_{mn} = row-m of A * col-n of B^T
     // after B's transporse
-    // C_{mn} = row-m of A * col-n of B
+    // C_{mn} = row-m of A * row-n of B
     for i in 0..m {
         let row_a = &_a[i * k..(i + 1) * k];
         for j in 0..n {
@@ -341,37 +355,13 @@ fn test_softmax() {
 }
 
 #[test]
-fn test_matmul_transb_broadcast_1() {
+fn test_matmul_transb_broadcast() {
     let mut c = Tensor::<f32>::new(vec![1., 2., 3., 4.], &vec![2, 2]);
     let a = Tensor::<f32>::new(vec![1., 2., 3., 4.], &vec![2, 2]);
-    let b = Tensor::<f32>::new(vec![5., 6.], &vec![1, 2]);
+    let b = Tensor::<f32>::new(vec![5., 6.], &vec![2, 1]);
     matmul_transb(&mut c, 1.5, &a, &b, 0.5);
     assert!(c.close_to(
-        &Tensor::<f32>::new(vec![10., 11.5, 24., 25.5], &vec![2, 2]),
-        1e-3
-    ));
-}
-
-#[test]
-fn test_matmul_transb_broadcast_2() {
-    let mut c = Tensor::<f32>::new(vec![0., 0., 0., 0.], &vec![2, 2]);
-    let a = Tensor::<f32>::new(vec![1., 2., 3., 4.], &vec![2, 2]);
-    let b = Tensor::<f32>::new(vec![5., 6.], &vec![1, 2]);
-    matmul_transb(&mut c, 1.5, &a, &b, 0.5);
-    assert!(c.close_to(
-        &Tensor::<f32>::new(vec![5., 12., 15., 24.], &vec![2, 2]),
-        1e-3
-    ));
-}
-
-#[test]
-fn test_matmul_transb_broadcast_3() {
-    let mut c = Tensor::<f32>::new(vec![0., 0., 0., 0.], &vec![2, 2]);
-    let a = Tensor::<f32>::new(vec![1., 2., 3., 4.], &vec![2, 2]);
-    let b = Tensor::<f32>::new(vec![5., 6.], &vec![1, 2]);
-    matmul_transb(&mut c, 1.5, &a, &b, 0.5);
-    assert!(c.close_to(
-        &Tensor::<f32>::new(vec![5., 12., 15., 24.], &vec![2, 2]),
+        &Tensor::<f32>::new(vec![9., 12., 22., 27.], &vec![2, 2]),
         1e-3
     ));
 }

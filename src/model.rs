@@ -3,7 +3,7 @@ use std::vec;
 
 use crate::config::LlamaConfigJson;
 use crate::kvcache::KVCache;
-use crate::operators::{self as OP, matmul_transb, rms_norm, rope, silu};
+use crate::operators::{self as OP, masked_softmax, matmul_transb, rms_norm, rope, silu};
 use crate::params::LLamaParams;
 use crate::tensor::Tensor;
 use rand::seq;
@@ -156,6 +156,75 @@ fn self_attention(
 ) {
     // After anaylsis, the output is att_scores, input is hidden_states
     // q, k, v is `full`
+    let unit_len = dqkv; // the length of one unit
+    let q_group_len = n_groups * unit_len; // the length of one group of q
+    let k_group_len = 1 * unit_len; // the length of one group of (k & v)
+    let row_len = n_kv_h * n_groups * dqkv; // hidden_size, means the length of one row
+
+    // get datas
+    let _q = q.data();
+    let _k = k.data();
+    let _v = v.data();
+    let _attention_scores = unsafe { att_scores.data_mut() };
+
+    let mut offset_q = 0; // use this to change q_rows
+    let mut offset_k = 0; // use this to change k_rows
+
+    // 1. calculate the 'q & k'
+    for m in 0..seq_len {
+        // iterate the q, unit as one row
+        // now should calculate current q_row, by using offset_q
+        offset_q += row_len; // offset_q will be the start index of q_row
+
+        for n in 0..total_seq_len {
+            // iterate the k, unit as one row
+            // now should calculate current k_row, by using offset_k
+            offset_k += row_len; // offset_k will be the start index of k_row
+
+            for i in 0..n_kv_h {
+                // there are n_kv_h groups in both q, k, v
+
+                let q_group = &_q[offset_q + i * q_group_len..offset_q + (i + 1) * q_group_len];
+                let k_group = &_k[offset_k + i * k_group_len..offset_k + (i + 1) * k_group_len];
+
+                for j in 0..n_groups {
+                    // in q, one group has `n_groups` unit
+                    let q_unit = &q_group[j * unit_len..(j + 1) * unit_len];
+                    // in k, one group has only one unit
+                    // so just need to use k_group[0..k_group_len], just k_group
+
+                    // As for next multiplication, similar with `matmul_trans`
+                    // if C = A * B^T
+                    // then C[i][j] = sum(A[i][:] * B[j][:])
+                    // the `*` is dot product!
+
+                    // when calculate attentions, first locate to correct 2D table
+                    // if want to locate, first need to know (seq_len * total_seq_len) is the size of each 2D table
+                    // we have already finished i groups, each groups has `n_groups` members
+                    // so we need to multiply `i * n_groups` to get the correct 2D table
+                    // then, we are in the correct 2D table, now we need to locate to correct table
+                    // so finally, we need to then multiply `j * n_groups` to get the correct table
+                    let offset_attention =
+                        (seq_len * total_seq_len) * (i * n_groups + j * n_groups);
+                    // now we have located to correct table, now we need to locate to correct row
+                    _attention_scores[offset_attention + m * total_seq_len + n] =
+                        q_unit.iter().zip(k_group).map(|(a, b)| a * b).sum::<f32>();
+                }
+            }
+        }
+
+        // reset offset_k
+        offset_k = 0;
+    }
+    // reset offset_q
+    // offset_q = 0;
+
+    // 2. softmax & mask `attention_scores`
+    masked_softmax(att_scores);
+
+    // 3. calculate `attention_output`
+    // In fact, calculate `(qk) & v`
+    todo!("待实现 qk 和 v 的乘法");
 
     todo!("Implement self_attention");
 }
