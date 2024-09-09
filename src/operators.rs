@@ -44,17 +44,20 @@ pub fn masked_softmax(y: &mut Tensor<f32>) {
     assert!(ndim >= 2);
     let seq_len = y.shape()[ndim - 2];
     let total_seq_len = y.shape()[ndim - 1];
-    let batch = y.size() / (seq_len * total_seq_len);
+    let batch = y.size() / (seq_len * total_seq_len); // use this as a unit, the D is the lastest 2 D
     let data = unsafe { y.data_mut() };
     for b in 0..batch {
-        let base = b * seq_len * total_seq_len;
+        let base = b * seq_len * total_seq_len; // get the first unit
         for i in 0..seq_len {
-            let offset = base + i * total_seq_len;
-            let boundary = total_seq_len - seq_len + i + 1;
+            let offset = base + i * total_seq_len; // in the unit, get one row's first location
+            let boundary = total_seq_len - seq_len + i + 1; // WHY ?
+                                                            // maybe because, use `masked` together with `softmax`, so need to calculate the `boundary`
 
             let max = data[offset..offset + boundary]
                 .iter()
                 .fold(data[offset], |a, b| a.max(*b));
+            // as for the `max`, the first step is to get num of `boundary` data from offset in data[]
+            // second, it will get the `maximum` of those data
 
             let sum = (0..boundary)
                 .map(|j| {
@@ -62,14 +65,15 @@ pub fn masked_softmax(y: &mut Tensor<f32>) {
                     data[offset + j] = e;
                     e
                 })
-                .sum::<f32>();
+                .sum::<f32>(); // calculate the sum
 
-            (0..boundary).for_each(|j| data[offset + j] /= sum);
-            (boundary..total_seq_len).for_each(|j| data[offset + j] = 0.0);
+            (0..boundary).for_each(|j| data[offset + j] /= sum); // normalize
+            (boundary..total_seq_len).for_each(|j| data[offset + j] = 0.0); // mask
         }
     }
 }
 
+// y = (w * x) / (sum{x^2} / n + epsilon).sqrt()
 pub fn rms_norm(y: &mut Tensor<f32>, x: &Tensor<f32>, w: &Tensor<f32>, epsilon: f32) {
     // Ensure the same length of `n`
     let &n = y.shape().last().unwrap();
@@ -325,6 +329,49 @@ fn test_matmul_transb() {
     matmul_transb(&mut c, 1., &a, &b, 1.);
     assert!(c.close_to(
         &Tensor::<f32>::new(vec![15., 34., 35., 81.], &vec![2, 2]),
+        1e-3
+    ));
+}
+
+#[test]
+fn test_softmax() {
+    let mut y = Tensor::<f32>::new(vec![1., 2., 3., 4., 5., 6.], &vec![2, 3]);
+    let res = masked_softmax(&mut y);
+    println!("{:?}", res);
+}
+
+#[test]
+fn test_matmul_transb_broadcast_1() {
+    let mut c = Tensor::<f32>::new(vec![1., 2., 3., 4.], &vec![2, 2]);
+    let a = Tensor::<f32>::new(vec![1., 2., 3., 4.], &vec![2, 2]);
+    let b = Tensor::<f32>::new(vec![5., 6.], &vec![1, 2]);
+    matmul_transb(&mut c, 1.5, &a, &b, 0.5);
+    assert!(c.close_to(
+        &Tensor::<f32>::new(vec![10., 11.5, 24., 25.5], &vec![2, 2]),
+        1e-3
+    ));
+}
+
+#[test]
+fn test_matmul_transb_broadcast_2() {
+    let mut c = Tensor::<f32>::new(vec![0., 0., 0., 0.], &vec![2, 2]);
+    let a = Tensor::<f32>::new(vec![1., 2., 3., 4.], &vec![2, 2]);
+    let b = Tensor::<f32>::new(vec![5., 6.], &vec![1, 2]);
+    matmul_transb(&mut c, 1.5, &a, &b, 0.5);
+    assert!(c.close_to(
+        &Tensor::<f32>::new(vec![5., 12., 15., 24.], &vec![2, 2]),
+        1e-3
+    ));
+}
+
+#[test]
+fn test_matmul_transb_broadcast_3() {
+    let mut c = Tensor::<f32>::new(vec![0., 0., 0., 0.], &vec![2, 2]);
+    let a = Tensor::<f32>::new(vec![1., 2., 3., 4.], &vec![2, 2]);
+    let b = Tensor::<f32>::new(vec![5., 6.], &vec![1, 2]);
+    matmul_transb(&mut c, 1.5, &a, &b, 0.5);
+    assert!(c.close_to(
+        &Tensor::<f32>::new(vec![5., 12., 15., 24.], &vec![2, 2]),
         1e-3
     ));
 }

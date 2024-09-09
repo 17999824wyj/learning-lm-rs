@@ -3,9 +3,10 @@ use std::vec;
 
 use crate::config::LlamaConfigJson;
 use crate::kvcache::KVCache;
-use crate::operators::{self as OP, matmul_transb, rms_norm, silu};
+use crate::operators::{self as OP, matmul_transb, rms_norm, rope, silu};
 use crate::params::LLamaParams;
 use crate::tensor::Tensor;
+use rand::seq;
 use safetensors::SafeTensors;
 use std::path::Path;
 pub struct Llama<T> {
@@ -153,6 +154,9 @@ fn self_attention(
     total_seq_len: usize,
     dqkv: usize,
 ) {
+    // After anaylsis, the output is att_scores, input is hidden_states
+    // q, k, v is `full`
+
     todo!("Implement self_attention");
 }
 
