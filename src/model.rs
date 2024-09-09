@@ -159,12 +159,10 @@ fn self_attention(
     let unit_len = dqkv; // the length of one unit
     let q_group_len = n_groups * unit_len; // the length of one group of q
     let k_group_len = 1 * unit_len; // the length of one group of (k & v)
-    let row_len = n_kv_h * n_groups * dqkv; // hidden_size, means the length of one row
 
     // get datas
     let _q = q.data();
     let _k = k.data();
-    let _v = v.data();
     let _attention_scores = unsafe { att_scores.data_mut() };
 
     let mut offset_q = 0; // use this to change q_rows
@@ -174,12 +172,12 @@ fn self_attention(
     for m in 0..seq_len {
         // iterate the q, unit as one row
         // now should calculate current q_row, by using offset_q
-        offset_q += row_len; // offset_q will be the start index of q_row
+        offset_q += n_kv_h * n_groups * dqkv; // offset_q will be the start index of q_row
 
         for n in 0..total_seq_len {
             // iterate the k, unit as one row
             // now should calculate current k_row, by using offset_k
-            offset_k += row_len; // offset_k will be the start index of k_row
+            offset_k += n_kv_h * dqkv; // offset_k will be the start index of k_row
 
             for i in 0..n_kv_h {
                 // there are n_kv_h groups in both q, k, v
@@ -204,8 +202,7 @@ fn self_attention(
                     // so we need to multiply `i * n_groups` to get the correct 2D table
                     // then, we are in the correct 2D table, now we need to locate to correct table
                     // so finally, we need to then multiply `j * n_groups` to get the correct table
-                    let offset_attention =
-                        (seq_len * total_seq_len) * (i * n_groups + j * n_groups);
+                    let offset_attention = (seq_len * total_seq_len) * (i * n_groups + j);
                     // now we have located to correct table, now we need to locate to correct row
                     _attention_scores[offset_attention + m * total_seq_len + n] =
                         q_unit.iter().zip(k_group).map(|(a, b)| a * b).sum::<f32>();
@@ -224,9 +221,53 @@ fn self_attention(
 
     // 3. calculate `attention_output`
     // In fact, calculate `(qk) & v`
-    todo!("待实现 qk 和 v 的乘法");
+    // now, qk is `attention_score`
+    // we just need to do the similar things as above
 
-    todo!("Implement self_attention");
+    // get data
+    let _v = v.data();
+    let _hidden_states = unsafe { hidden_states.data_mut() };
+    let _attention_scores = unsafe { att_scores.data_mut() };
+
+    let v_group_len = 1 * unit_len; // the same size of group (k && v)
+    let qk_group_len = n_groups * (seq_len * total_seq_len); // as for qk, it is constitued by `n_kv_h` 2D tables
+    let hidden_group_len = n_groups * unit_len; // the same size of group (hidden)
+
+    let attention_row_len = total_seq_len;
+    let v_row_len = n_kv_h * unit_len;
+    let hidden_row_len = n_kv_h * n_groups * unit_len;
+
+    for i in 0..n_kv_h {
+        // iterate the groups
+
+        for j in 0..n_groups {
+            // iterate the rows in each group
+
+            // locate the first item of attention unit 2D table
+            let attention_start = i * qk_group_len + j * (seq_len * total_seq_len);
+            // locate the first item of v unit 2D table
+            let v_start = i * v_group_len + j * unit_len;
+
+            // if iterate one row of attention 2D table, column add `total_seq_len`
+            // if iterate one row of v unit 2D table, column add `n_kv_h * unit_len`
+
+            // locate the first item of `res` unit matrix
+            let hidden_start = i * hidden_group_len + j * unit_len;
+            // if iterate one row of `res` unit matrix, column add `n_kv_h * n_groups * unit_len`
+
+            for m in 0..seq_len {
+                for n in 0..unit_len {
+                    let row_vec = &_attention_scores[attention_start + m * attention_row_len
+                        ..attention_start + (m + 1) * attention_row_len];
+                    let mut sum = 0.;
+                    for k in 0..total_seq_len {
+                        sum += row_vec[k] * _v[v_start + k * v_row_len + n];
+                    }
+                    _hidden_states[hidden_start + m * hidden_row_len + n] += sum;
+                }
+            }
+        }
+    }
 }
 
 fn mlp(
