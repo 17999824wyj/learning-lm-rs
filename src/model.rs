@@ -136,6 +136,7 @@ impl Llama<f32> {
                 &self.params.rms_ffn_w[layer],
                 self.eps,
             );
+            residual.print();
         }
 
         // No matter what seq_len, the output is always a 1D vector of length vocab,
@@ -165,10 +166,6 @@ impl Llama<f32> {
         temperature: f32,
     ) -> Vec<u32> {
         let mut result = Vec::<u32>::new();
-
-        // for token in token_ids {
-        //     result.push(*token);
-        // }
 
         let mut input = Tensor::new(Vec::from(token_ids), &vec![token_ids.len()]);
         let mut cache = self.new_cache();
@@ -206,22 +203,17 @@ fn self_attention(
     let _k = k.data();
     let _attention_scores = unsafe { att_scores.data_mut() };
 
-    let mut offset_q = 0; // use this to change q_rows
-    let mut offset_k = 0; // use this to change k_rows
+    let q_row_len = n_kv_h * n_groups * unit_len; // use this to change q_rows
+    let k_row_len = n_kv_h * unit_len; // use this to change k_rows
 
     // 1. calculate the 'q & k'
     for m in 0..seq_len {
-        // iterate the q, unit as one row
-        // now should calculate current q_row, by using offset_q
-        offset_q += n_kv_h * n_groups * dqkv; // offset_q will be the start index of q_row
-
         for n in 0..total_seq_len {
-            // iterate the k, unit as one row
-            // now should calculate current k_row, by using offset_k
-            offset_k += n_kv_h * dqkv; // offset_k will be the start index of k_row
-
             for i in 0..n_kv_h {
                 // there are n_kv_h groups in both q, k, v
+
+                let offset_q = m * q_row_len;
+                let offset_k = n * k_row_len;
 
                 let q_group = &_q[offset_q + i * q_group_len..offset_q + (i + 1) * q_group_len];
                 let k_group = &_k[offset_k + i * k_group_len..offset_k + (i + 1) * k_group_len];
@@ -250,14 +242,11 @@ fn self_attention(
                 }
             }
         }
-
-        // reset offset_k
-        offset_k = 0;
     }
-    // reset offset_q
-    // offset_q = 0;
 
     // 2. softmax & mask `attention_scores`
+    att_scores.print();
+    panic!();
     masked_softmax(att_scores);
 
     // 3. calculate `attention_output`
@@ -281,13 +270,14 @@ fn self_attention(
     for i in 0..n_kv_h {
         // iterate the groups
 
+        // locate the first item of v unit 2D table
+        let v_start = i * v_group_len;
+
         for j in 0..n_groups {
-            // iterate the rows in each group
+            // iterate the group member in qk's one group
 
             // locate the first item of attention unit 2D table
             let attention_start = i * qk_group_len + j * (seq_len * total_seq_len);
-            // locate the first item of v unit 2D table
-            let v_start = i * v_group_len + j * unit_len;
 
             // if iterate one row of attention 2D table, column add `total_seq_len`
             // if iterate one row of v unit 2D table, column add `n_kv_h * unit_len`
@@ -297,9 +287,10 @@ fn self_attention(
             // if iterate one row of `res` unit matrix, column add `n_kv_h * n_groups * unit_len`
 
             for m in 0..seq_len {
+                let row_vec = &_attention_scores[attention_start + m * attention_row_len
+                    ..attention_start + (m + 1) * attention_row_len];
+
                 for n in 0..unit_len {
-                    let row_vec = &_attention_scores[attention_start + m * attention_row_len
-                        ..attention_start + (m + 1) * attention_row_len];
                     let mut sum = 0.;
                     for k in 0..total_seq_len {
                         sum += row_vec[k] * _v[v_start + k * v_row_len + n];
