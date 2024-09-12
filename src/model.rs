@@ -3,7 +3,7 @@ use std::vec;
 
 use crate::config::LlamaConfigJson;
 use crate::kvcache::KVCache;
-use crate::operators::{self as OP, masked_softmax, matmul_transb, rms_norm, rope, silu};
+use crate::operators::{self as OP};
 use crate::params::LLamaParams;
 use crate::tensor::Tensor;
 use rand::seq;
@@ -123,7 +123,7 @@ impl Llama<f32> {
                 1.,
             );
 
-            let mut hidden_states = Tensor::<f32>::default(&vec![seq_len, self.d]);
+            hidden_states = Tensor::<f32>::default(&vec![seq_len, self.d]);
 
             mlp(
                 &mut residual,
@@ -136,7 +136,6 @@ impl Llama<f32> {
                 &self.params.rms_ffn_w[layer],
                 self.eps,
             );
-            residual.print();
         }
 
         // No matter what seq_len, the output is always a 1D vector of length vocab,
@@ -236,18 +235,16 @@ fn self_attention(
                     // then, we are in the correct 2D table, now we need to locate to correct table
                     // so finally, we need to then multiply `j * n_groups` to get the correct table
                     let offset_attention = (seq_len * total_seq_len) * (i * n_groups + j);
-                    // now we have located to correct table, now we need to locate to correct row
                     _attention_scores[offset_attention + m * total_seq_len + n] =
-                        q_unit.iter().zip(k_group).map(|(a, b)| a * b).sum::<f32>();
+                        q_unit.iter().zip(k_group).map(|(a, b)| a * b).sum::<f32>()
+                            / (dqkv as f32).sqrt();
                 }
             }
         }
     }
 
     // 2. softmax & mask `attention_scores`
-    att_scores.print();
-    panic!();
-    masked_softmax(att_scores);
+    OP::masked_softmax(att_scores);
 
     // 3. calculate `attention_output`
     // In fact, calculate `(qk) & v`
@@ -257,7 +254,7 @@ fn self_attention(
     // get data
     let _v = v.data();
     let _hidden_states = unsafe { hidden_states.data_mut() };
-    let _attention_scores = unsafe { att_scores.data_mut() };
+    let _attention_scores = att_scores.data();
 
     let v_group_len = 1 * unit_len; // the same size of group (k && v)
     let qk_group_len = n_groups * (seq_len * total_seq_len); // as for qk, it is constitued by `n_kv_h` 2D tables
@@ -295,7 +292,7 @@ fn self_attention(
                     for k in 0..total_seq_len {
                         sum += row_vec[k] * _v[v_start + k * v_row_len + n];
                     }
-                    _hidden_states[hidden_start + m * hidden_row_len + n] += sum;
+                    _hidden_states[hidden_start + m * hidden_row_len + n] = sum;
                 }
             }
         }
@@ -331,28 +328,11 @@ fn mlp(
         "[ERROR] @mlp >> w_down is not a 2D-matrix"
     );
 
-    rms_norm(hidden_states, &residual, rms_w, eps);
-    matmul_transb(gate, 0., &hidden_states, w_gate, 1.);
-    matmul_transb(up, 0., &hidden_states, w_up, 1.);
-    silu(gate, up);
-    let hidden = &mut Tensor::<f32>::new(Vec::from(gate.data()), gate.shape());
-    matmul_transb(hidden_states, 0., &hidden, w_down, 1.);
-
-    // if has a `E` function, then can use code below
-    // matmul_transb(
-    //     residual,
-    //     1,
-    //     &hidden_states,
-    //     Tensor::<f32>::E(hidden_states.shape()[1]),
-    //     1,
-    // );
-
-    // if not, then use code below
-    let _residual = unsafe { residual.data_mut() };
-    let _hidden = hidden_states.data();
-    for i in 0..hidden_states.size() {
-        _residual[i] += _hidden[i];
-    }
+    OP::rms_norm(hidden_states, &residual, rms_w, eps);
+    OP::matmul_transb(gate, 0., &hidden_states, w_gate, 1.);
+    OP::matmul_transb(up, 0., &hidden_states, w_up, 1.);
+    OP::silu(up, gate);
+    OP::matmul_transb(residual, 1., &up, w_down, 1.);
 }
 
 #[test]
