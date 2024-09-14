@@ -171,8 +171,13 @@ impl Llama<f32> {
         for _ in 0..max_len {
             let res = self.forward(&input, &mut cache);
             let token = OP::random_sample(&res, top_p, top_k, temperature);
-            result.push(token);
-            input = Tensor::new(vec![token], &vec![1]);
+
+            if token == self.eos_token_id {
+                return result;
+            } else {
+                result.push(token);
+                input = Tensor::new(vec![token], &vec![1]);
+            }
         }
 
         result
@@ -237,7 +242,7 @@ fn self_attention(
                     let offset_attention = (seq_len * total_seq_len) * (i * n_groups + j);
                     _attention_scores[offset_attention + m * total_seq_len + n] =
                         q_unit.iter().zip(k_group).map(|(a, b)| a * b).sum::<f32>()
-                            / (dqkv as f32).sqrt();
+                            / (unit_len as f32).sqrt();
                 }
             }
         }
