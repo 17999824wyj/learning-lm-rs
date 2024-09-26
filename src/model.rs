@@ -6,9 +6,9 @@ use crate::kvcache::KVCache;
 use crate::operators::{self as OP};
 use crate::params::LLamaParams;
 use crate::tensor::Tensor;
-use rand::seq;
 use safetensors::SafeTensors;
 use std::path::Path;
+
 pub struct Llama<T> {
     vocab: usize,           // vocab size
     n_layers: usize,        // number of layers

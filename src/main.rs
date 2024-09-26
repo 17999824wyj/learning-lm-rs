@@ -3,20 +3,24 @@ mod kvcache;
 mod model;
 mod operators;
 mod params;
+mod response;
+mod schemas;
+mod service;
 mod tensor;
 
-use std::path::PathBuf;
-use tokenizers::Tokenizer;
+use service::service::Service;
+use service::start_infer_service;
 
-fn main() {
-    let project_dir = env!("CARGO_MANIFEST_DIR");
-    let model_dir = PathBuf::from(project_dir).join("models").join("story");
-    let llama = model::Llama::<f32>::from_safetensors(&model_dir);
-    let tokenizer = Tokenizer::from_file(model_dir.join("tokenizer.json")).unwrap();
-    let input = "Once upon a time";
-    let binding = tokenizer.encode(input, true).unwrap();
-    let input_ids = binding.get_ids();
-    print!("\n{}", input);
-    let output_ids = llama.generate(input_ids, 200, 0.95, 50, 0.7);
-    println!("{}", tokenizer.decode(&output_ids, true).unwrap());
+#[tokio::main]
+async fn main() {
+    // 设置端口号
+    let port = 9001;
+
+    // 创建 Service 实例
+    let service = Service::default();
+
+    // 启动推断服务
+    if let Err(e) = start_infer_service(service, port).await {
+        eprintln!("Failed to start infer service: {}", e);
+    }
 }

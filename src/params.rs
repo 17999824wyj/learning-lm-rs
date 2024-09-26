@@ -1,6 +1,7 @@
 use crate::config::LlamaConfigJson;
 use crate::tensor::Tensor;
 use safetensors::{Dtype, SafeTensors};
+
 pub struct LLamaParams<T> {
     // token_id to embedding lookup table
     pub embedding_table: Tensor<T>, // (vocab_size, dim)
